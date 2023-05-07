@@ -64,6 +64,23 @@ mod private {
 
     // C-FFI safe types (the previous macro avoid redundant code)
     c_ffi_safe![(), i8, i16, i32, i64, u8, u16, u32, u64, f32, f64];
+
+    macro_rules! c_ffi_safe_fun {
+        () => {
+            impl<Output: CFFISafe> CFFISafe for unsafe extern "C" fn() -> Output {}
+        };
+        ($x:ident $(,$xs:ident)*) => {
+            c_ffi_safe_fun!($( $xs ),*);
+            impl<$x $(,$xs)*, Output> CFFISafe for unsafe extern "C" fn($x, $($xs),*) -> Output
+              where
+               Output: CFFISafe,
+               $x: CFFISafe,
+               $($xs: CFFISafe),
+               * {}
+        };
+    }
+
+    c_ffi_safe_fun!(A, B, C, D, E, F);
 }
 
 macro_rules! transparent {
@@ -106,3 +123,31 @@ where
         x as *mut T
     }
 }
+
+macro_rules! repr_rust_fn {
+    () => {
+        impl<Output> ReprRust<unsafe extern "C" fn() -> Output> for Box<dyn Fn() -> Output>
+          where
+            Output: private::CFFISafe + 'static,
+        {
+            fn from(f: unsafe extern "C" fn() -> Output) -> Self {
+                unsafe { Box::new(move || f())}
+            }
+        }
+    };
+    ($x:ident, $y:ident $(,$xs:ident, $ys: ident)*) => {
+        repr_rust_fn!($( $xs, $ys ),*);
+        impl<$x, $($xs,)* Output> ReprRust<unsafe extern "C" fn($x $(,$xs)*) -> Output> for Box<dyn Fn($x $(,$xs)*) -> Output>
+          where
+            Output: private::CFFISafe + 'static,
+            $x: private::CFFISafe + 'static$(,
+            $xs: private::CFFISafe + 'static)*
+        {
+            fn from(f: unsafe extern "C" fn($x $(, $xs )*) -> Output) -> Self {
+                unsafe { Box::new(move |$y $(,$ys)*| f($y $(,$ys)*))}
+            }
+        }
+    };
+}
+
+repr_rust_fn!(A, a, B, b, C, c, D, d, E, e, F, f);
